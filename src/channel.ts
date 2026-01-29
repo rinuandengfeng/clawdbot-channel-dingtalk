@@ -53,7 +53,7 @@ const CARD_UPDATE_MIN_INTERVAL = 500; // Minimum 500ms between updates
 
 // Card update timeout tracking - auto-finalize if no updates for a while
 const cardUpdateTimeouts = new Map<string, NodeJS.Timeout>();
-const CARD_UPDATE_TIMEOUT = 3000; // 3 seconds of inactivity = finalized
+const CARD_UPDATE_TIMEOUT = 60000; // 60 seconds of inactivity = finalized
 
 // Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
@@ -689,16 +689,11 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
     try {
       if (useCardMode) {
         // For card mode, send initial card with thinking message
-        const result = await sendInteractiveCard(
-          dingtalkConfig,
-          to,
-          '> 🤔 **正在思考中，请稍候...**',
-          { log }
-        );
+        const result = await sendInteractiveCard(dingtalkConfig, to, '🤔 思考中，请稍候...', { log });
         currentCardBizId = result.cardBizId;
       } else {
         // For text/markdown mode, send via session webhook
-        await sendBySession(dingtalkConfig, sessionWebhook, '> 🤔 **正在思考中，请稍候...**', {
+        await sendBySession(dingtalkConfig, sessionWebhook, '🤔 思考中，请稍候...', {
           atUserId: !isDirect ? senderId : null,
           log,
         });
@@ -718,7 +713,7 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         if (useCardMode) {
           // Card mode: update existing card or create new one (throttled)
           if (currentCardBizId) {
-            await updateInteractiveCardThrottled(dingtalkConfig, currentCardBizId, textToSend, { log });
+            await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
           } else {
             const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
             currentCardBizId = result.cardBizId;
@@ -771,6 +766,7 @@ export const dingtalkPlugin = {
     media: true,
     nativeCommands: false,
     blockStreaming: false,
+    outbound: true,
   },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
