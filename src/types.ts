@@ -29,6 +29,8 @@ export interface DingTalkConfig extends ClawdbotConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
+  cardSendApiUrl?: string;
+  cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
 
@@ -49,6 +51,8 @@ export interface DingTalkChannelConfig {
   debug?: boolean;
   messageType?: 'text' | 'markdown' | 'card';
   cardTemplateId?: string;
+  cardSendApiUrl?: string;
+  cardUpdateApiUrl?: string;
   accounts?: Record<string, DingTalkConfig>;
 }
 

@@ -3,6 +3,7 @@ import axios from 'axios';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
@@ -46,7 +47,15 @@ let accessTokenExpiry = 0;
 // Card instance cache for streaming updates
 const cardInstances = new Map<string, CardInstance>();
 
-// Cache cleanup interval (1 hour)
+// Card update throttling - track last update time per card
+const cardUpdateTimestamps = new Map<string, number>();
+const CARD_UPDATE_MIN_INTERVAL = 500; // Minimum 500ms between updates
+
+// Card update timeout tracking - auto-finalize if no updates for a while
+const cardUpdateTimeouts = new Map<string, NodeJS.Timeout>();
+const CARD_UPDATE_TIMEOUT = 3000; // 3 seconds of inactivity = finalized
+
+// Card cache TTL (1 hour)
 const CARD_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // Clean up old card instances from cache
@@ -55,12 +64,31 @@ function cleanupCardCache() {
   for (const [cardBizId, instance] of cardInstances.entries()) {
     if (now - instance.lastUpdated > CARD_CACHE_TTL) {
       cardInstances.delete(cardBizId);
+      cardUpdateTimestamps.delete(cardBizId);
+      const timeout = cardUpdateTimeouts.get(cardBizId);
+      if (timeout) {
+        clearTimeout(timeout);
+        cardUpdateTimeouts.delete(cardBizId);
+      }
     }
   }
 }
 
 // Run cleanup periodically (every 30 minutes)
-setInterval(cleanupCardCache, 30 * 60 * 1000);
+let cleanupIntervalId: NodeJS.Timeout | null = setInterval(cleanupCardCache, 30 * 60 * 1000);
+
+// Cleanup function to stop the interval
+function stopCardCacheCleanup() {
+  if (cleanupIntervalId) {
+    clearInterval(cleanupIntervalId);
+    cleanupIntervalId = null;
+  }
+  // Clear all pending timeouts
+  for (const timeout of cardUpdateTimeouts.values()) {
+    clearTimeout(timeout);
+  }
+  cardUpdateTimeouts.clear();
+}
 
 // Helper function to detect markdown and extract title
 function detectMarkdownAndExtractTitle(
@@ -119,7 +147,7 @@ async function getAccessToken(config: DingTalkConfig, log?: Logger): Promise<str
     },
     { maxRetries: 3, log }
   );
-  
+
   return token;
 }
 
@@ -315,16 +343,22 @@ async function sendInteractiveCard(
   text: string,
   options: SendMessageOptions = {}
 ): Promise<{ cardBizId: string; response: any }> {
+  // Validate robotCode is configured
+  const robotCode = config.robotCode || config.clientId;
+  if (!robotCode) {
+    throw new Error('[DingTalk] robotCode or clientId is required for sending interactive cards');
+  }
+
   const token = await getAccessToken(config, options.log);
   const isGroup = conversationId.startsWith('cid');
   
-  // Generate unique card business ID
-  const cardBizId = `card_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  // Generate unique card business ID using crypto.randomUUID
+  const cardBizId = `card_${randomUUID()}`;
   
-  // Extract title from text
-  const { title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
+  // Extract title and detect markdown
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
   
-  // Build card data structure
+  // Build card data structure with markdown support
   const cardData: InteractiveCardData = {
     config: {
       autoLayout: true,
@@ -338,7 +372,7 @@ async function sendInteractiveCard(
     },
     contents: [
       {
-        type: 'text',
+        type: useMarkdown ? 'markdown' : 'text',
         text: text,
       },
     ],
@@ -348,7 +382,7 @@ async function sendInteractiveCard(
   const payload: InteractiveCardSendRequest = {
     cardTemplateId: config.cardTemplateId || 'StandardCard',
     cardBizId,
-    robotCode: config.robotCode || config.clientId,
+    robotCode,
     cardData: JSON.stringify(cardData),
   };
   
@@ -358,12 +392,21 @@ async function sendInteractiveCard(
     payload.singleChatReceiver = JSON.stringify({ userId: conversationId });
   }
   
-  const result = await axios({
-    url: 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send',
-    method: 'POST',
-    data: payload,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-  });
+  // Use configurable API URL with retry logic
+  const apiUrl =
+    config.cardSendApiUrl || 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send';
+  
+  const result = await retryWithBackoff(
+    async () => {
+      return await axios({
+        url: apiUrl,
+        method: 'POST',
+        data: payload,
+        headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+      });
+    },
+    { maxRetries: 3, log: options.log }
+  );
   
   // Cache card instance for future updates
   cardInstances.set(cardBizId, {
@@ -385,10 +428,10 @@ async function updateInteractiveCard(
 ): Promise<any> {
   const token = await getAccessToken(config, options.log);
   
-  // Extract title from text
-  const { title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
+  // Extract title and detect markdown
+  const { useMarkdown, title } = detectMarkdownAndExtractTitle(text, options, 'Clawdbot 消息');
   
-  // Build updated card data
+  // Build updated card data with markdown support
   const cardData: InteractiveCardData = {
     config: {
       autoLayout: true,
@@ -402,7 +445,7 @@ async function updateInteractiveCard(
     },
     contents: [
       {
-        type: 'text',
+        type: useMarkdown ? 'markdown' : 'text',
         text: text,
       },
     ],
@@ -417,20 +460,97 @@ async function updateInteractiveCard(
     },
   };
   
-  const result = await axios({
-    url: 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards',
-    method: 'PUT',
-    data: payload,
-    headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
-  });
+  // Use configurable API URL with retry logic
+  const apiUrl = config.cardUpdateApiUrl || 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards';
   
-  // Update cache
-  const instance = cardInstances.get(cardBizId);
-  if (instance) {
-    instance.lastUpdated = Date.now();
+  try {
+    const result = await retryWithBackoff(
+      async () => {
+        return await axios({
+          url: apiUrl,
+          method: 'PUT',
+          data: payload,
+          headers: { 'x-acs-dingtalk-access-token': token, 'Content-Type': 'application/json' },
+        });
+      },
+      { maxRetries: 3, log: options.log }
+    );
+    
+    // Update cache on success
+    const instance = cardInstances.get(cardBizId);
+    if (instance) {
+      instance.lastUpdated = Date.now();
+    }
+    
+    return result.data;
+  } catch (err: any) {
+    // Remove card from cache on terminal errors (404, 410, etc.)
+    const statusCode = err.response?.status;
+    if (statusCode === 404 || statusCode === 410 || statusCode === 403) {
+      options.log?.debug?.(
+        `[DingTalk] Removing card ${cardBizId} from cache due to error ${statusCode}`
+      );
+      cardInstances.delete(cardBizId);
+    }
+    throw err;
+  }
+}
+
+// Throttled card update wrapper with timeout mechanism
+async function updateInteractiveCardThrottled(
+  config: DingTalkConfig,
+  cardBizId: string,
+  text: string,
+  options: SendMessageOptions = {}
+): Promise<any> {
+  const now = Date.now();
+  const lastUpdate = cardUpdateTimestamps.get(cardBizId) || 0;
+  const timeSinceLastUpdate = now - lastUpdate;
+  
+  // Clear any existing timeout for this card
+  const existingTimeout = cardUpdateTimeouts.get(cardBizId);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
   }
   
-  return result.data;
+  // If enough time has passed, update immediately
+  if (timeSinceLastUpdate >= CARD_UPDATE_MIN_INTERVAL) {
+    cardUpdateTimestamps.set(cardBizId, now);
+    const result = await updateInteractiveCard(config, cardBizId, text, options);
+    
+    // Set timeout to detect when updates are complete
+    const timeout = setTimeout(() => {
+      cardUpdateTimeouts.delete(cardBizId);
+      options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);
+    }, CARD_UPDATE_TIMEOUT);
+    
+    cardUpdateTimeouts.set(cardBizId, timeout);
+    return result;
+  } else {
+    // Schedule update after the minimum interval
+    return new Promise((resolve, reject) => {
+      const delay = CARD_UPDATE_MIN_INTERVAL - timeSinceLastUpdate;
+      const timeout = setTimeout(async () => {
+        try {
+          cardUpdateTimestamps.set(cardBizId, Date.now());
+          const result = await updateInteractiveCard(config, cardBizId, text, options);
+          
+          // Set inactivity timeout
+          const inactivityTimeout = setTimeout(() => {
+            cardUpdateTimeouts.delete(cardBizId);
+            options.log?.debug?.(`[DingTalk] Card ${cardBizId} finalized after inactivity timeout`);
+          }, CARD_UPDATE_TIMEOUT);
+          
+          cardUpdateTimeouts.set(cardBizId, inactivityTimeout);
+          resolve(result);
+        } catch (err) {
+          reject(err);
+        }
+      }, delay);
+      
+      cardUpdateTimeouts.set(cardBizId, timeout);
+    });
+  }
 }
 
 // Send message with automatic mode selection (text/markdown/card)
@@ -596,9 +716,9 @@ async function handleDingTalkMessage(params: HandleDingTalkMessageParams): Promi
         if (!textToSend) return { ok: true };
         
         if (useCardMode) {
-          // Card mode: update existing card or create new one
+          // Card mode: update existing card or create new one (throttled)
           if (currentCardBizId) {
-            await updateInteractiveCard(dingtalkConfig, currentCardBizId, textToSend, { log });
+            await updateInteractiveCardThrottled(dingtalkConfig, currentCardBizId, textToSend, { log });
           } else {
             const result = await sendInteractiveCard(dingtalkConfig, to, textToSend, { log });
             currentCardBizId = result.cardBizId;
@@ -791,6 +911,8 @@ export const dingtalkPlugin = {
             ctx.log.info(`[${account.accountId}] DingTalk provider stopped`);
           }
           rt.channel.activity.record('dingtalk', account.accountId, 'stop');
+          // Clean up card cache cleanup interval
+          stopCardCacheCleanup();
         },
       };
     },
@@ -828,6 +950,8 @@ export const dingtalkPlugin = {
  *   (returns cardBizId for streaming updates).
  * - {@link updateInteractiveCard} updates an existing interactive card
  *   (for streaming message updates).
+ * - {@link updateInteractiveCardThrottled} throttled version of updateInteractiveCard
+ *   with rate limiting and auto-finalization timeout (recommended for streaming).
  * - {@link sendMessage} sends a message with automatic mode selection
  *   (text/markdown/card based on config).
  * - {@link getAccessToken} retrieves (and caches) the DingTalk access token
@@ -841,6 +965,7 @@ export {
   sendProactiveMessage,
   sendInteractiveCard,
   updateInteractiveCard,
+  updateInteractiveCardThrottled,
   sendMessage,
   getAccessToken,
   dingtalkConfigSchema,

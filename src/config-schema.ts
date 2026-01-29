@@ -47,6 +47,18 @@ export const DingTalkConfigSchema = z.object({
   /** Card template ID for interactive cards (e.g., 'StandardCard') */
   cardTemplateId: z.string().optional().default('StandardCard'),
 
+  /** API endpoint for sending interactive cards */
+  cardSendApiUrl: z
+    .string()
+    .optional()
+    .default('https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send'),
+
+  /** API endpoint for updating interactive cards */
+  cardUpdateApiUrl: z
+    .string()
+    .optional()
+    .default('https://api.dingtalk.com/v1.0/im/robots/interactiveCards'),
+
   /** Multi-account configuration */
   accounts: z.record(z.string(), z.unknown()).optional(),
 });

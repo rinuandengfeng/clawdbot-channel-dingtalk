@@ -82,6 +82,8 @@ clawdbot plugins install -l .
       groupPolicy: 'open', // open | allowlist
       messageType: 'markdown', // text | markdown | card
       cardTemplateId: 'StandardCard', // 互动卡片模板 ID
+      cardSendApiUrl: 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send', // 可选：自定义发送卡片API
+      cardUpdateApiUrl: 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards', // 可选：自定义更新卡片API
       debug: false,
     },
   },
@@ -96,20 +98,22 @@ clawdbot gateway restart
 
 ## 配置选项
 
-| 选项             | 类型     | 默认值          | 说明                                      |
-| ---------------- | -------- | --------------- | ----------------------------------------- |
-| `enabled`        | boolean  | `true`          | 是否启用                                  |
-| `clientId`       | string   | 必填            | 应用的 AppKey                             |
-| `clientSecret`   | string   | 必填            | 应用的 AppSecret                          |
-| `robotCode`      | string   | -               | 机器人代码（用于下载媒体）                |
-| `corpId`         | string   | -               | 企业 ID                                   |
-| `agentId`        | string   | -               | 应用 ID                                   |
-| `dmPolicy`       | string   | `"open"`        | 私聊策略：open/pairing/allowlist          |
-| `groupPolicy`    | string   | `"open"`        | 群聊策略：open/allowlist                  |
-| `allowFrom`      | string[] | `[]`            | 允许的发送者 ID 列表                      |
-| `messageType`    | string   | `"markdown"`    | 消息类型：text/markdown/card              |
-| `cardTemplateId` | string   | `"StandardCard"` | 互动卡片模板 ID（仅当 messageType=card 时）|
-| `debug`          | boolean  | `false`         | 是否开启调试日志                          |
+| 选项               | 类型     | 默认值                                                          | 说明                                      |
+| ------------------ | -------- | --------------------------------------------------------------- | ----------------------------------------- |
+| `enabled`          | boolean  | `true`                                                          | 是否启用                                  |
+| `clientId`         | string   | 必填                                                            | 应用的 AppKey                             |
+| `clientSecret`     | string   | 必填                                                            | 应用的 AppSecret                          |
+| `robotCode`        | string   | -                                                               | 机器人代码（用于下载媒体和发送卡片）      |
+| `corpId`           | string   | -                                                               | 企业 ID                                   |
+| `agentId`          | string   | -                                                               | 应用 ID                                   |
+| `dmPolicy`         | string   | `"open"`                                                        | 私聊策略：open/pairing/allowlist          |
+| `groupPolicy`      | string   | `"open"`                                                        | 群聊策略：open/allowlist                  |
+| `allowFrom`        | string[] | `[]`                                                            | 允许的发送者 ID 列表                      |
+| `messageType`      | string   | `"markdown"`                                                    | 消息类型：text/markdown/card              |
+| `cardTemplateId`   | string   | `"StandardCard"`                                                | 互动卡片模板 ID（仅当 messageType=card）  |
+| `cardSendApiUrl`   | string   | `"https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send"` | 自定义卡片发送 API URL（可选）            |
+| `cardUpdateApiUrl` | string   | `"https://api.dingtalk.com/v1.0/im/robots/interactiveCards"`   | 自定义卡片更新 API URL（可选）            |
+| `debug`            | boolean  | `false`                                                         | 是否开启调试日志                          |
 
 ## 安全策略
 
@@ -172,10 +176,17 @@ clawdbot gateway restart
 2. AI 生成回复时，实时更新卡片内容
 3. 用户可以看到回复逐步生成的过程
 
+**流式更新优化：**
+- 自动节流：最小 500ms 更新间隔，避免 API 限流
+- 超时检测：3 秒无更新自动视为完成
+- 错误处理：遇到 404/410 错误自动清理缓存
+- 支持 Markdown：卡片内容自动支持 Markdown 格式
+
 ```json5
 {
   messageType: 'card', // 启用互动卡片模式
   cardTemplateId: 'StandardCard', // 使用标准卡片模板
+  cardSendApiUrl: 'https://api.dingtalk.com/...', // 可选：自定义 API
 }
 ```
 
