@@ -16,8 +16,12 @@
 
 ### 方法 A：通过远程仓库安装 (推荐)
 
-直接运行 openclaw 插件安装命令，openclaw 会自动处理下载、安装依赖和注册：
+直接运行 clawdbot 或 openclaw 插件安装命令，clawdbot 或 openclaw 会自动处理下载、安装依赖和注册：
 
+```bash
+clawdbot plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
+```
+或
 ```bash
 openclaw plugins install https://github.com/soimy/clawdbot-channel-dingtalk.git
 ```
@@ -35,14 +39,16 @@ cd clawdbot-channel-dingtalk
 npm install
 
 # 3. 以链接模式安装 (方便修改代码后实时生效)
+clawdbot plugins install -l .
+or 
 openclaw plugins install -l .
 ```
 
 ### 方法 C：手动安装
 
-1. 将本目录下载或复制到 `~/.openclaw/extensions/dingtalk`。
-2. 确保包含 `index.ts`, `openclaw.plugin.json` 和 `package.json`。
-3. 运行 `openclaw plugins list` 确认 `dingtalk` 已显示在列表中。
+1. 将本目录下载或复制到 `~/.clawdbot/extensions/dingtalk` 或 `~/.openclaw/extensions/dingtalk`。
+2. 确保包含 `index.ts`, `clawdbot.plugin.json` 或 `openclaw.plugin.json` 和 `package.json`。
+3. 运行 `clawdbot plugins list`  或 `openclaw plugins list` 确认 `dingtalk` 已显示在列表中。
 
 ## 配置
 
@@ -66,7 +72,7 @@ openclaw plugins install -l .
 
 ### 3. 配置 Clawdbot
 
-在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
+在 `~/.clawdbot/clawdbot.json` 或 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
 
 ```json5
 {
@@ -91,6 +97,10 @@ openclaw plugins install -l .
 ```
 
 ### 4. 重启 Gateway
+
+```bash
+clawdbot gateway restart
+```
 
 ```bash
 openclaw gateway restart
@@ -224,7 +234,7 @@ openclaw gateway restart
 
 ```bash
 git clone https://github.com/soimy/clawdbot-channel-dingtalk.git
-cd openclaw-channel-dingtalk
+cd clawdbot-channel-dingtalk
 npm install
 ```
 
