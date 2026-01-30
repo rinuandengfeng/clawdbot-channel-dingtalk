@@ -67,26 +67,28 @@ openclaw plugins install -l .
 ### 3. 配置 Clawdbot
 
 在 `~/.openclaw/clawdbot.json` 的 `channels` 下添加：
+> 只添加dingtalk部分，内容自己替换
 
 ```json5
 {
-  channels: {
-    dingtalk: {
-      enabled: true,
-      clientId: 'dingxxxxxx',
-      clientSecret: 'your-app-secret',
-      robotCode: 'dingxxxxxx',
-      corpId: 'dingxxxxxx',
-      agentId: '123456789',
-      dmPolicy: 'open', // open | pairing | allowlist
-      groupPolicy: 'open', // open | allowlist
-      messageType: 'markdown', // text | markdown | card
-      cardTemplateId: 'StandardCard', // 互动卡片模板 ID
-      cardSendApiUrl: 'https://api.dingtalk.com/v1.0/im/v1.0/robot/interactiveCards/send', // 可选：自定义发送卡片API
-      cardUpdateApiUrl: 'https://api.dingtalk.com/v1.0/im/robots/interactiveCards', // 可选：自定义更新卡片API
-      debug: false,
-    },
+  ...
+  "channels": {
+    "telegram": { ... },
+
+    "dingtalk": {
+      "enabled": true,
+      "clientId": "dingxxxxxx",
+      "clientSecret": "your-app-secret",
+      "robotCode": "dingxxxxxx",
+      "corpId": "dingxxxxxx",
+      "agentId": "123456789",
+      "dmPolicy": "open",
+      "groupPolicy": "open",      
+      "messageType": "markdown",       
+      "debug": false
+    }
   },
+  ...
 }
 ```
 

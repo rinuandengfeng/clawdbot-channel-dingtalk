@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { ClawdbotConfig } from 'clawdbot/plugin-sdk';
+import type { OpenClawConfig } from 'openclaw/plugin-sdk';
+import { buildChannelConfigSchema } from 'openclaw/plugin-sdk';
 import { maskSensitiveData, cleanupOrphanedTempFiles, retryWithBackoff } from '../utils';
 import { getDingTalkRuntime } from './runtime';
 import { DingTalkConfigSchema } from './config-schema.js';
@@ -27,18 +28,6 @@ import type {
   InteractiveCardUpdateRequest,
   CardInstance,
 } from './types';
-
-// Use dynamic require to get buildChannelConfigSchema (avoids TS type resolution issues)
-// The actual runtime will load this successfully via ESM interop
-let dingtalkConfigSchema: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { buildChannelConfigSchema } = require('clawdbot/plugin-sdk');
-  dingtalkConfigSchema = buildChannelConfigSchema(DingTalkConfigSchema);
-} catch {
-  // Fallback if require fails - shouldn't happen in normal operation
-  dingtalkConfigSchema = {};
-}
 
 // Access Token cache
 let accessToken: string | null = null;
@@ -151,7 +140,7 @@ function detectMarkdownAndExtractTitle(
   return { useMarkdown, title };
 }
 
-function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
+function getConfig(cfg: OpenClawConfig, accountId?: string): DingTalkConfig {
   const dingtalkCfg = cfg?.channels?.dingtalk;
   if (!dingtalkCfg) return {} as DingTalkConfig;
 
@@ -162,7 +151,7 @@ function getConfig(cfg: ClawdbotConfig, accountId?: string): DingTalkConfig {
   return dingtalkCfg;
 }
 
-function isConfigured(cfg: ClawdbotConfig, accountId?: string): boolean {
+function isConfigured(cfg: OpenClawConfig, accountId?: string): boolean {
   const config = getConfig(cfg, accountId);
   return Boolean(config.clientId && config.clientSecret);
 }
@@ -835,7 +824,7 @@ export const dingtalkPlugin = {
     blurb: '钉钉企业内部机器人，使用 Stream 模式，无需公网 IP。',
     aliases: ['dd', 'ding'],
   },
-  configSchema: dingtalkConfigSchema,
+  configSchema: buildChannelConfigSchema(DingTalkConfigSchema),
   capabilities: {
     chatTypes: ['direct', 'group'],
     reactions: false,
@@ -847,11 +836,11 @@ export const dingtalkPlugin = {
   },
   reload: { configPrefixes: ['channels.dingtalk'] },
   config: {
-    listAccountIds: (cfg: ClawdbotConfig): string[] => {
+    listAccountIds: (cfg: OpenClawConfig): string[] => {
       const config = getConfig(cfg);
       return config.accounts ? Object.keys(config.accounts) : isConfigured(cfg) ? ['default'] : [];
     },
-    resolveAccount: (cfg: ClawdbotConfig, accountId?: string) => {
+    resolveAccount: (cfg: OpenClawConfig, accountId?: string) => {
       const config = getConfig(cfg);
       const id = accountId || 'default';
       const account = config.accounts?.[id];
@@ -1041,5 +1030,4 @@ export {
   updateInteractiveCardThrottled,
   sendMessage,
   getAccessToken,
-  dingtalkConfigSchema,
 };
